@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Planning Unlocked — S&OP Control Centre V10.1</title>
+<title>Planning Unlocked — S&OP Control Centre V10.2</title>
 <style>
 :root{
   --blue:#174891;--dark:#0F315F;--light:#EAF1F8;--bg:#F5F7FA;--card:#fff;
@@ -46,6 +46,8 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
 @media(max-width:1000px){.app{grid-template-columns:1fr}nav{display:flex;overflow:auto;border-right:0;border-bottom:1px solid var(--border)}nav button{min-width:145px}.grid4,.grid2,.form{grid-template-columns:1fr}.full{grid-column:auto}main{padding:16px}}
 
 .authbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.authstatus{font-size:12px;padding:6px 9px;border-radius:999px;background:rgba(255,255,255,.12)}.authstatus.ok{background:#DDF7E7;color:#0B6B31}.authstatus.err{background:#FDECEC;color:#8A1C13}.authstatus.wait{background:#FFF3E2;color:#8A4B08}.btn.headerbtn{background:#fff;color:var(--dark);padding:8px 11px}.connection-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.connection-item{border:1px solid var(--border);border-radius:9px;padding:10px;background:#fff}.connection-item .name{font-weight:700;color:var(--dark)}.connection-item .meta{font-size:11px;color:var(--muted);margin-top:4px}@media(max-width:900px){.connection-grid{grid-template-columns:1fr}}
+
+.cycle-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:7px}.cycle-controls select{min-width:150px;padding:7px 30px 7px 10px;border-radius:8px;border:1px solid #d0d5dd;background:#fff}.cycle-status-pill{padding:5px 9px;border-radius:999px;font-size:12px;font-weight:700;background:#eef2f6;color:#344054}.cycle-status-pill.approved{background:#ecfdf3;color:#027a48}.cycle-status-pill.review{background:#fff7ed;color:#b54708}.calendar-wrap{display:flex;gap:6px;align-items:center}.calendar-wrap input{flex:1}.calendar-btn{min-width:40px;padding:9px 10px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer;font-size:17px;line-height:1}.calendar-btn:hover{background:#f9fafb}.month-picker-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.month-picker-grid select{width:100%;padding:10px;border:1px solid #d0d5dd;border-radius:8px;background:#fff}.readonly-banner{display:none;margin:12px 0;padding:10px 12px;border-radius:8px;background:#f2f4f7;color:#475467;font-size:13px}.readonly-banner.show{display:block}
 </style>
 <script type="text/javascript" src="https://alcdn.msauth.net/browser/2.35.0/js/msal-browser.min.js"></script>
 
@@ -79,8 +81,15 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
 <body>
 <header>
   <div>
-    <div class="brand">Planning Unlocked — S&OP Control Centre V10.1</div>
+    <div class="brand">Planning Unlocked — S&OP Control Centre V10.2</div>
     <div class="cycle" id="cycleLabel"></div>
+    <div class="cycle-controls" id="cycleControls">
+      <label for="cycleSelect" class="small" style="color:#fff">Working cycle</label>
+      <select id="cycleSelect" onchange="switchCycle(this.value)"></select>
+      <span id="cycleStatusPill" class="cycle-status-pill"></span>
+      <button class="btn headerbtn" id="reopenCycleBtn" onclick="reopenSelectedCycle()" style="display:none">Reopen approved cycle</button>
+      <span id="cycleLoadHint" class="small" style="color:#dbe7f5">Load live data to change cycle</span>
+    </div>
   </div>
   <div class="authbar">
     <span id="authStatus" class="authstatus">Microsoft 365: not connected</span>
@@ -96,12 +105,13 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
   <button data-page="demand">2 Demand</button>
   <button data-page="supply">3 Supply</button>
   <button data-page="reconcile">4 Reconcile</button>
-  <button data-page="management">5 Decide</button>
+  <button data-page="management">5 Management Review</button>
   <button data-page="decisions">Decision Log</button>
   <button data-page="data">Data / Reset</button>
 </nav>
 
 <main>
+<div id="readonlyCycleBanner" class="readonly-banner"></div>
 <section id="dashboard" class="page active">
   <div id="managementDashboardV9">
     <div class="mgmt-grid">
@@ -276,7 +286,7 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
 
   <div class="callout" style="margin-top:16px">
     <b>This approval will:</b><br>
-    Freeze the current 24-month outlook into Monthly Snapshots, mark the current cycle Approved,
+    Freeze the current 24-month outlook into Monthly Snapshots (creating a new revision if this cycle was previously approved), mark the current cycle Approved,
     create the next month as Draft, keep live Products and Opportunities in place, keep open Decisions visible without changing their original Cycle ID,
     and reset Product Change Type to No Material Change.
   </div>
@@ -342,6 +352,19 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
   <div class="actions"><button class="btn" onclick="saveOpportunity()">Save</button><button class="btn secondary" onclick="closeModal('oppModal')">Cancel</button></div>
 </div></div>
 
+<div id="monthPickerModal" class="modal-backdrop"><div class="modal" style="max-width:420px">
+  <h2>Select month</h2>
+  <div class="month-picker-grid">
+    <div class="field"><label>Month</label><select id="monthPickerMonth"></select></div>
+    <div class="field"><label>Year</label><select id="monthPickerYear"></select></div>
+  </div>
+  <div class="actions">
+    <button class="btn secondary" type="button" onclick="clearMonthPicker()">Clear</button>
+    <button class="btn secondary" type="button" onclick="closeModal('monthPickerModal')">Cancel</button>
+    <button class="btn" type="button" onclick="applyMonthPicker()">Set month</button>
+  </div>
+</div></div>
+
 <div id="toast" class="toast">
   <div id="toastTitle"><b>Decision escalated</b></div>
   <div id="toastText" class="small"></div>
@@ -355,7 +378,7 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
 const M365_CONFIG={
   clientId:'61c97ff9-f911-4ba9-9a99-d838fcaed895',
   tenantId:'7693e289-607c-4504-bdde-c1b8f143e5d7',
-  redirectUri:'https://victorious-field-0dad5aa10.3.azurestaticapps.net/',
+  redirectUri:(location.hostname==='localhost'||location.hostname==='127.0.0.1')?'http://localhost:5500/':'https://victorious-field-0dad5aa10.3.azurestaticapps.net/',
   siteHost:'planningunlocked.sharepoint.com',
   sitePath:'/sites/PlanningUnlockedLtd',
   scopes:['Sites.ReadWrite.All'],
@@ -632,6 +655,139 @@ async function testLiveListRead(){
 }
 
 
+
+function snapshotRevisionFromId(id){
+  const m=String(id||'').match(/-R(\d+)$/i);
+  return m?Math.max(1,Number(m[1])||1):1;
+}
+function snapshotIdBase(snapshotMonth,horizonMonth,revision=1){
+  const base=`SNP-${snapshotMonth}-${horizonMonth}`;
+  return revision>1?`${base}-R${String(revision).padStart(2,'0')}`:base;
+}
+function completeSnapshotRevision(rows,columns){
+  const byRev=new Map();
+  for(const it of rows||[]){
+    const f=it.fields||{};
+    const sid=String(getByAliases(f,columns,['Snapshot ID','Title'],''));
+    const hm=ymFromDate(getByAliases(f,columns,['Horizon Month'],''));
+    if(!hm)continue;
+    const rev=snapshotRevisionFromId(sid);
+    if(!byRev.has(rev))byRev.set(rev,new Set());
+    byRev.get(rev).add(hm);
+  }
+  const complete=[...byRev.entries()].filter(([_,m])=>m.size===24).map(([r])=>r).sort((a,b)=>a-b);
+  return complete.length?complete[complete.length-1]:0;
+}
+function rowsForSnapshotRevision(rows,columns,revision){
+  return (rows||[]).filter(it=>snapshotRevisionFromId(String(getByAliases(it.fields||{},columns,['Snapshot ID','Title'],'')))===revision);
+}
+function cycleCatalogEntry(ym){return (state._cycleCatalog||[]).find(c=>c.month===ym)||null}
+function selectedCycleStatus(){return cycleCatalogEntry(state.cycle)?.status||'Draft'}
+function cycleIsLocked(){return liveMode && selectedCycleStatus()==='Approved'}
+function guardEditable(action='change this cycle'){
+  if(!cycleIsLocked())return true;
+  alert(`${monthLong(state.cycle)} is Approved and is currently read-only. Use “Reopen approved cycle” before you ${action}.`);
+  return false;
+}
+function renderCycleControls(){
+  const wrap=document.getElementById('cycleControls'),sel=document.getElementById('cycleSelect'),pill=document.getElementById('cycleStatusPill'),reopen=document.getElementById('reopenCycleBtn'),banner=document.getElementById('readonlyCycleBanner'),hint=document.getElementById('cycleLoadHint');
+  if(!wrap||!sel||!pill||!reopen||!banner)return;
+  wrap.style.display='flex';
+  if(!liveMode){
+    sel.innerHTML=`<option value="${escapeHtml(state.cycle)}">${escapeHtml(monthLong(state.cycle))}</option>`;
+    sel.disabled=true;if(hint)hint.style.display='inline';
+    sel.title='Connect Microsoft 365 and load live S&OP data to change cycle';
+    pill.textContent='LOAD LIVE DATA';pill.className='cycle-status-pill';
+    reopen.style.display='none';
+    banner.classList.remove('show');
+    return;
+  }
+  sel.disabled=false;if(hint)hint.style.display='none';sel.title='Select cycle';
+  const catalog=[...(state._cycleCatalog||[])].sort((a,b)=>b.month.localeCompare(a.month));
+  sel.innerHTML=catalog.map(c=>`<option value="${escapeHtml(c.month)}" ${c.month===state.cycle?'selected':''}>${escapeHtml(monthLong(c.month))}</option>`).join('');
+  const st=selectedCycleStatus();
+  pill.textContent=st||'Draft';pill.className='cycle-status-pill '+(st==='Approved'?'approved':st==='In Review'?'review':'');
+  reopen.style.display=st==='Approved'?'inline-block':'none';
+  const locked=cycleIsLocked();
+  banner.textContent=locked?`${monthLong(state.cycle)} is an approved cycle and is read-only. You can review it safely, or deliberately reopen it for correction.`:'';
+  banner.classList.toggle('show',locked);
+}
+function capacityStateForCycle(ym){
+  const rows=(state._allCapacityRows||[]).filter(x=>x.month===ym);
+  const steve=rows.find(x=>x.expert==='Steve'),mike=rows.find(x=>x.expert==='Mike');
+  return {steveGross:steve?steve.gross:15,steveLeave:steve?steve.leave:0,mikeGross:mike?mike.gross:15,mikeLeave:mike?mike.leave:0,bdDays:(steve?steve.bd:0)+(mike?mike.bd:0),manualAdjust:(steve?steve.adjustment:0)+(mike?mike.adjustment:0),_liveRows:{Steve:steve||null,Mike:mike||null}};
+}
+async function switchCycle(ym){
+  if(!liveMode||!/^\d{4}-\d{2}$/.test(String(ym||'')))return;
+  state.cycle=ym;
+  state.capacity=capacityStateForCycle(ym);
+  loadReconciliationMetaFromDecisions();
+  await refreshApprovedCyclesFromSharePoint();
+  await refreshBaselineFromSnapshots();
+  render();
+  renderCycleControls();
+  setAuthStatus(`SharePoint: LIVE · ${monthName(ym)} ${selectedCycleStatus()}`,'ok');
+}
+async function reopenSelectedCycle(){
+  if(!liveMode){alert('Load Live S&OP Data first.');return}
+  const entry=cycleCatalogEntry(state.cycle);
+  if(!entry||entry.status!=='Approved'){alert('Only an Approved cycle can be reopened.');return}
+  const later=(state._cycleCatalog||[]).filter(c=>c.month>state.cycle).sort((a,b)=>b.month.localeCompare(a.month));
+  const returnCycle=later.find(c=>c.status==='Draft'||c.status==='In Review')?.month||later[0]?.month||'';
+  const ok=confirm(`Reopen ${monthLong(state.cycle)} for correction?\n\nIts existing approved 24-month snapshot will be retained as an audit revision. When you approve again, a new snapshot revision will be created; the previous snapshot will not be overwritten.`);
+  if(!ok)return;
+  try{
+    const rec=await cycleRecordForYM(state.cycle);if(!rec)throw new Error('Cycle record was not found in Microsoft Lists.');
+    await patchNamedField(LIST_NAMES.cycles,rec.id,'Cycle Status',['Status'],'In Review',true);
+    entry.status='In Review';
+    state._returnCycleAfterHistoricalApproval=returnCycle;
+    render();renderCycleControls();
+    liveNotice(`<b>${escapeHtml(monthLong(state.cycle))} reopened.</b> Existing approved snapshots have been retained. Re-approval will create a new revision.`);
+    setAuthStatus(`SharePoint: LIVE · ${monthName(state.cycle)} In Review`,'ok');
+  }catch(err){console.error(err);alert('Cycle could not be reopened: '+(err.message||err))}
+}
+let monthPickerTarget=null;
+function openMonthPicker(input){
+  monthPickerTarget=input;
+  const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  monthPickerMonth.innerHTML=monthNames.map((m,i)=>`<option value="${String(i+1).padStart(2,'0')}">${m}</option>`).join('');
+  const existing=String(input.value||state.cycle||'');
+  const parts=/^(\d{4})-(\d{2})$/.exec(existing);
+  const baseYear=parts?Number(parts[1]):new Date().getFullYear();
+  const baseMonth=parts?parts[2]:String(new Date().getMonth()+1).padStart(2,'0');
+  const years=[];
+  for(let y=baseYear-3;y<=baseYear+10;y++)years.push(y);
+  monthPickerYear.innerHTML=years.map(y=>`<option value="${y}">${y}</option>`).join('');
+  monthPickerMonth.value=baseMonth;
+  monthPickerYear.value=String(baseYear);
+  monthPickerModal.style.display='flex';
+}
+function applyMonthPicker(){
+  if(!monthPickerTarget)return closeModal('monthPickerModal');
+  monthPickerTarget.value=`${monthPickerYear.value}-${monthPickerMonth.value}`;
+  monthPickerTarget.dispatchEvent(new Event('change',{bubbles:true}));
+  closeModal('monthPickerModal');
+  monthPickerTarget.focus();
+}
+function clearMonthPicker(){
+  if(monthPickerTarget){monthPickerTarget.value='';monthPickerTarget.dispatchEvent(new Event('change',{bubbles:true}));}
+  closeModal('monthPickerModal');
+}
+function installDatePickers(){
+  document.querySelectorAll('input[type="date"],input[type="month"]').forEach(input=>{
+    if(input.dataset.pickerInstalled==='1')return;
+    input.dataset.pickerInstalled='1';
+    const wrap=document.createElement('div');wrap.className='calendar-wrap';
+    input.parentNode.insertBefore(wrap,input);wrap.appendChild(input);
+    const b=document.createElement('button');b.type='button';b.className='calendar-btn';b.setAttribute('aria-label',input.type==='month'?'Select month':'Open calendar');b.title=input.type==='month'?'Select month':'Open calendar';b.textContent='📅';
+    b.addEventListener('click',()=>{
+      if(input.type==='month'){openMonthPicker(input);return;}
+      try{if(typeof input.showPicker==='function')input.showPicker();else{input.focus();input.click()}}catch(e){input.focus();input.click()}
+    });
+    wrap.appendChild(b);
+  });
+}
+
 async function loadLiveSOPData(){
   let loadStage='starting';
   try{
@@ -665,13 +821,44 @@ async function loadLiveSOPData(){
       };
     }).filter(x=>x.month);
     cycles.sort((a,b)=>b.month.localeCompare(a.month));
+    state._cycleCatalog=cycles.map(c=>({...c}));
 
     // A month already present in Monthly Snapshots is historical/approved,
     // even if an imported/old Cycle row still says Draft.
-    const snapshotMonths=new Set(snapshotItems.map(it=>{
+    const snapshotMonthHorizons=new Map();
+    for(const it of snapshotItems){
       const f=it.fields||{};
-      return ymFromDate(getByAliases(f,sc,['Snapshot Month'],''));
-    }).filter(Boolean));
+      const sm=ymFromDate(getByAliases(f,sc,['Snapshot Month'],''));
+      const hm=ymFromDate(getByAliases(f,sc,['Horizon Month'],''));
+      if(!sm)continue;
+      if(!snapshotMonthHorizons.has(sm))snapshotMonthHorizons.set(sm,new Set());
+      if(hm)snapshotMonthHorizons.get(sm).add(hm);
+    }
+    const snapshotMonths=new Set(snapshotMonthHorizons.keys());
+    const completeSnapshotMonths=[...snapshotMonthHorizons.entries()]
+      .filter(([_,horizons])=>horizons.size===24)
+      .map(([sm])=>sm);
+
+    // The cycle selector is an audit/history control, so it must include
+    // historical approved months represented by complete snapshots even when
+    // the corresponding Cycles-list row is missing. Also normalise a stale
+    // Draft/In Review cycle row to Approved when a complete snapshot proves
+    // that month was approved.
+    for(const sm of completeSnapshotMonths){
+      const existing=state._cycleCatalog.find(c=>c.month===sm);
+      // Preserve an explicit In Review status: this is how an approved historical
+      // cycle is deliberately reopened for correction. A complete older snapshot
+      // remains audit history, not proof that the reopened working revision is locked.
+      if(existing && existing.status==='Draft') existing.status='Approved';
+      else if(!existing) state._cycleCatalog.push({
+        _spItemId:null,
+        id:cycleIdFor(sm),
+        month:sm,
+        status:'Approved',
+        approvedDate:''
+      });
+    }
+    state._cycleCatalog.sort((a,b)=>b.month.localeCompare(a.month));
 
     let active=cycles.find(x=>
       (x.status==='Draft'||x.status==='In Review') && !snapshotMonths.has(x.month)
@@ -739,7 +926,7 @@ async function loadLiveSOPData(){
       };
     }).filter(o=>o.client||o.name);
 
-    const capacityForCycle=capacityItems.map(it=>{
+    const allCapacityRows=capacityItems.map(it=>{
       const f=it.fields||{};
       return {
         _spItemId:it.id,
@@ -752,7 +939,9 @@ async function loadLiveSOPData(){
         other:num(getByAliases(f,kc,['Other Non-Delivery Days','Other Non Delivery Days'],0)),
         adjustment:num(getByAliases(f,kc,['Manual Adjustment'],0))
       };
-    }).filter(x=>x.month===state.cycle);
+    });
+    state._allCapacityRows=allCapacityRows;
+    const capacityForCycle=allCapacityRows.filter(x=>x.month===state.cycle);
 
     const steve=capacityForCycle.find(x=>x.expert==='Steve');
     const mike=capacityForCycle.find(x=>x.expert==='Mike');
@@ -793,12 +982,18 @@ async function loadLiveSOPData(){
     // Baseline: use latest approved snapshot total prior to current cycle if available.
     const snaps=snapshotItems.map(it=>{
       const f=it.fields||{};
+      const snapshotId=String(getByAliases(f,sc,['Snapshot ID','Title'],''));
       return {
+        _spItemId:it.id, snapshotId, revision:snapshotRevisionFromId(snapshotId),
         snapshotMonth:ymFromDate(getByAliases(f,sc,['Snapshot Month'],'')),
         horizonMonth:ymFromDate(getByAliases(f,sc,['Horizon Month'],'')),
-        weightedRevenue:num(getByAliases(f,sc,['Weighted Revenue'],0))
+        cycle:ymFromDate(getByAliases(f,sc,['Snapshot Month'],'')),
+        horizon:ymFromDate(getByAliases(f,sc,['Horizon Month'],'')),
+        weightedRevenue:num(getByAliases(f,sc,['Weighted Revenue'],0)),
+        confirmedRevenue:num(getByAliases(f,sc,['Confirmed Revenue'],0))
       };
     }).filter(x=>x.snapshotMonth);
+    state.snapshots=snaps;
     const priorMonths=[...new Set(snaps.map(x=>x.snapshotMonth).filter(m=>m<state.cycle))].sort().reverse();
     const prior=priorMonths[0];
     state.baselineRevenue=prior?snaps.filter(x=>x.snapshotMonth===prior).reduce((s,x)=>s+x.weightedRevenue,0):weightedRevenue(state.opportunities);
@@ -829,6 +1024,8 @@ async function loadLiveSOPData(){
     // Re-render only after SharePoint-derived cycle history and baseline are loaded.
     // This makes the Current Data card reflect the live source of truth immediately.
     render();
+    renderCycleControls();
+    installDatePickers();
 
     const inferredCycle = active && !active._spItemId;
     liveNotice(`<b>Live mode loaded.</b> ${state.products.length} products, ${state.opportunities.length} opportunities, ${state.decisions.filter(d=>!isReconciliationMeta(d)).length} decisions and current ${monthLong(state.cycle)} capacity are now sourced from Microsoft Lists.${inferredCycle?` <b>${monthLong(state.cycle)}</b> has been inferred as the next planning cycle because the previous month is already snapshotted.`:''}${recoveryMessage}`);
@@ -970,7 +1167,7 @@ async function disconnectMicrosoft(){
   try{const app=await initMsal();if(m365Account)await app.logoutPopup({account:m365Account,postLogoutRedirectUri:M365_CONFIG.redirectUri});}catch(e){console.warn(e)}
   m365Account=null;sharePointSite=null;sharePointLists={};listColumns={};setLiveMode(false);setAuthStatus('Microsoft 365: not connected','');const e=authEls();if(e.test)e.test.style.display='none';if(e.summary)e.summary.textContent='Not connected. Click Connect Microsoft 365 in the header.';if(e.results)e.results.innerHTML='';
 }
-window.addEventListener('DOMContentLoaded',()=>{initMsal().catch(console.warn)});
+window.addEventListener('DOMContentLoaded',()=>{initMsal().catch(console.warn);installDatePickers()});
 
 const KEY='planningUnlockedSOPV2';
 const fmtGBP=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0}).format(n||0);
@@ -1092,7 +1289,9 @@ function selfTestSummary(){
 }
 
 function render(){
-  document.getElementById('cycleLabel').textContent=monthLong(state.cycle)+' · Draft Cycle';
+  document.getElementById('cycleLabel').textContent=monthLong(state.cycle)+' · '+(liveMode?selectedCycleStatus():'Draft')+' Cycle';
+  renderCycleControls();
+  setTimeout(installDatePickers,0);
   renderDashboard(); renderProducts(); renderOpps(); renderSupply(); renderReconcile(); renderManagement(); renderDecisions(); renderData();
   if(!liveMode) save();
 }
@@ -1126,7 +1325,9 @@ function v9MonthMetrics(ym){
 function v9BaselineForMonth(ym){
   const rows=(state.snapshots||[]).filter(s=>s.cycle===state.baselineCycle && s.horizon===ym);
   if(!rows.length)return null;
-  return rows.reduce((sum,s)=>sum+Number(s.weightedRevenue||0),0);
+  const latest=Math.max(...rows.map(s=>Number(s.revision||1)));
+  const selected=rows.filter(s=>Number(s.revision||1)===latest);
+  return selected.reduce((sum,s)=>sum+Number(s.weightedRevenue||0),0);
 }
 function renderV9ManagementDashboard(){
   const root=document.getElementById('managementDashboardV9');
@@ -1372,11 +1573,13 @@ function renderData(){
   }
 }
 function openProduct(id=''){
+  if(!id && !guardEditable('add a product'))return;
   let p=id?state.products.find(x=>x.id===id):{id:'',name:'',type:'Course',stage:'Idea',launch:state.cycle,build:0,change:'New',decision:'No',owner:'Steve',rec:'',active:true};
   pId.value=p.id;pName.value=p.name;setSelectValueLoose(pType,p.type);setSelectValueLoose(pStage,p.stage);pLaunch.value=p.launch;pBuild.value=p.build;setSelectValueLoose(pChange,p.change);setSelectValueLoose(pDecision,p.decision);setSelectValueLoose(pOwner,p.owner);pRec.value=p.rec||'';
   productModal.style.display='flex';
 }
 async function saveProduct(){
+  if(!guardEditable('save product changes'))return;
   let existing=pId.value?state.products.find(x=>x.id===pId.value):null;
   let obj={...(existing||{}),id:pId.value||('PROD-'+Date.now()),name:pName.value.trim(),type:pType.value,stage:pStage.value,launch:pLaunch.value,build:Number(pBuild.value||0),change:pChange.value,decision:pDecision.value,owner:pOwner.value,rec:pRec.value.trim()};
   if(!obj.name){alert('Enter an offer name.');return}
@@ -1394,11 +1597,13 @@ async function saveProduct(){
   }catch(err){console.error(err);alert('Product was not saved to Microsoft Lists: '+(err.message||err))}
 }
 function openOpportunity(id=''){
+  if(!id && !guardEditable('add an opportunity'))return;
   let o=id?state.opportunities.find(x=>x.id===id):{id:'',client:'',name:'',type:'Programme',status:'Early',prob:25,qty:1,start:state.cycle,end:state.cycle,revenue:0,days:0,revProfile:'Evenly spread',dayProfile:'Evenly spread',decision:'No',owner:'Steve',rec:'',active:true};
   oId.value=o.id;oClient.value=o.client;oName.value=o.name;setSelectValueLoose(oType,o.type);setSelectValueLoose(oStatus,o.status);oProb.value=o.prob;oQty.value=o.qty;oStart.value=o.start;oEnd.value=o.end;oRevenue.value=o.revenue;oDays.value=o.days;setSelectValueLoose(oRevProfile,o.revProfile);setSelectValueLoose(oDayProfile,o.dayProfile);setSelectValueLoose(oDecision,o.decision||'No');setSelectValueLoose(oOwner,o.owner||'Steve');oRec.value=o.rec||'';oppModal.style.display='flex';
 }
 function syncProbability(){oProb.value=probabilityForStatus(oStatus.value)}
 async function saveOpportunity(){
+  if(!guardEditable('save opportunity changes'))return;
   if(oEnd.value<oStart.value){alert('End month cannot be before start month.');return}
   let existing=oId.value?state.opportunities.find(x=>x.id===oId.value):null;
   let obj={...(existing||{}),id:oId.value||('OPP-'+Date.now()),client:oClient.value.trim(),name:oName.value.trim(),type:oType.value,status:oStatus.value,prob:clamp(Number(oProb.value||0),0,100),qty:Number(oQty.value||1),start:oStart.value,end:oEnd.value,revenue:Number(oRevenue.value||0),days:Number(oDays.value||0),revProfile:oRevProfile.value,dayProfile:oDayProfile.value,decision:oDecision.value,owner:oOwner.value,rec:oRec.value.trim()};
@@ -1417,12 +1622,14 @@ async function saveOpportunity(){
   }catch(err){console.error(err);alert('Opportunity was not saved to Microsoft Lists: '+(err.message||err))}
 }
 async function setProductArchived(id,archive){
+  if(!guardEditable(archive?'archive a product':'restore a product'))return;
   const p=state.products.find(x=>x.id===id);if(!p)return;
   if(archive&&!confirm(`Archive ${p.name}? It will be removed from the active plan but retained in Microsoft Lists and can be restored.`))return;
   const prior=p.active;p.active=!archive;
   try{if(liveMode)await persistProduct(p);render();liveNotice(`<b>${archive?'Archived':'Restored'}:</b> ${escapeHtml(p.name)} ${archive?'removed from the active plan.':'returned to the active plan.'}`)}catch(err){p.active=prior;render();alert('The offer could not be updated in Microsoft Lists: '+(err.message||err))}
 }
 async function setOpportunityArchived(id,archive){
+  if(!guardEditable(archive?'archive an opportunity':'restore an opportunity'))return;
   const o=state.opportunities.find(x=>x.id===id);if(!o)return;
   if(archive&&!confirm(`Archive ${o.client} — ${o.name}? It will be removed from the active forecast but retained in Microsoft Lists and can be restored.`))return;
   const prior=o.active;o.active=!archive;
@@ -1430,6 +1637,7 @@ async function setOpportunityArchived(id,archive){
 }
 function closeModal(id){document.getElementById(id).style.display='none'}
 async function updateCapacityInputs(){
+  if(!guardEditable('save capacity changes')){render();return}
   const existingRows=state.capacity?state.capacity._liveRows:null;
   state.capacity={steveGross:Number(steveGross.value||0),steveLeave:Number(steveLeave.value||0),mikeGross:Number(mikeGross.value||0),mikeLeave:Number(mikeLeave.value||0),bdDays:Number(bdDays.value||0),manualAdjust:Number(manualAdjust.value||0),_liveRows:existingRows||{}};
   render();
@@ -1510,6 +1718,7 @@ function scheduleReconciliationSync(){
   },500);
 }
 async function saveReconciliationNow(){
+  if(!guardEditable('save reconciliation changes'))return false;
   clearTimeout(_reconcileSyncTimer);
   state.meta.risk=reconcileRisk.value;
   state.meta.recommendation=reconcileRecommendation.value;
@@ -1529,6 +1738,7 @@ async function saveReconciliationNow(){
 }
 
 function saveMeta(){
+  if(!guardEditable('save reconciliation changes')){renderReconcile();return}
   state.meta.risk=reconcileRisk.value;
   state.meta.recommendation=reconcileRecommendation.value;
   state.meta.reconcileDecision=reconcileDecision.value;
@@ -1564,12 +1774,14 @@ function showEscalationToast(result){
   window._toastTimer=setTimeout(()=>{t.style.display='none'},7000);
 }
 async function escalateCapacity(month,gap){
+  if(!guardEditable('escalate a capacity decision'))return;
   let result=addDecision('Supply',`How do we cover the ${fmtNum(Math.abs(gap))}-day capacity shortfall in ${monthName(month)}?`,'Secure additional capacity, move development work, or adjust programme timing.','Steve',0,Math.abs(gap));
   if(liveMode&&result?.isNew){try{await persistDecision(result.decision)}catch(err){console.error(err);liveNotice(`<b>Decision save failed:</b> ${escapeHtml(err.message||String(err))}`,'err')}}
   render();
   showEscalationToast(result);
 }
 async function escalateReconciliation(){
+  if(!guardEditable('escalate a reconciliation decision'))return;
   state.meta.risk=reconcileRisk.value;
   state.meta.recommendation=reconcileRecommendation.value;
   state.meta.reconcileDecision=reconcileDecision.value;
@@ -1602,11 +1814,12 @@ async function escalateReconciliation(){
   render();
   showEscalationToast(result);
 }
-function updateDecision(id,field,val){let d=state.decisions.find(x=>x.id===id);if(d){d[field]=val;render();scheduleDecisionSync(id)}}
+function updateDecision(id,field,val){if(!guardEditable('change a management decision')){render();return}let d=state.decisions.find(x=>x.id===id);if(d){d[field]=val;render();scheduleDecisionSync(id)}}
 function escapeHtml(v){
   return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function changeDecisionType(id,val){
+  if(!guardEditable('change a management decision')){render();return}
   let d=state.decisions.find(x=>x.id===id);
   if(!d)return;
   d.decision=val;
@@ -1623,10 +1836,11 @@ function changeDecisionType(id,val){
   render();
   scheduleDecisionSync(id);
 }
-function updateDecisionText(id,val){let d=state.decisions.find(x=>x.id===id);if(d){d.finalDecisionText=val;if(!liveMode)save();scheduleDecisionSync(id)}}
-function updateDecisionRationale(id,val){let d=state.decisions.find(x=>x.id===id);if(d){d.rationale=val;if(!liveMode)save();scheduleDecisionSync(id)}}
-function updateDecisionReviewDate(id,val){let d=state.decisions.find(x=>x.id===id);if(d){d.deferReviewDate=val;if(!liveMode)save();scheduleDecisionSync(id)}}
+function updateDecisionText(id,val){if(!guardEditable('change a management decision'))return;let d=state.decisions.find(x=>x.id===id);if(d){d.finalDecisionText=val;if(!liveMode)save();scheduleDecisionSync(id)}}
+function updateDecisionRationale(id,val){if(!guardEditable('change a management decision'))return;let d=state.decisions.find(x=>x.id===id);if(d){d.rationale=val;if(!liveMode)save();scheduleDecisionSync(id)}}
+function updateDecisionReviewDate(id,val){if(!guardEditable('change a management decision'))return;let d=state.decisions.find(x=>x.id===id);if(d){d.deferReviewDate=val;if(!liveMode)save();scheduleDecisionSync(id)}}
 async function deleteDecision(id){
+  if(!guardEditable('delete a decision'))return;
   const d=state.decisions.find(x=>x.id===id);
   if(!d)return;
   if(!confirm(`Delete ${id}? This will remove it from the Decision Log${liveMode?' and Microsoft Lists':''}.`))return;
@@ -1745,26 +1959,21 @@ async function refreshBaselineFromSnapshots(){
 
   const items=await readItems(LIST_NAMES.snapshots);
   const sc=await getColumns(LIST_NAMES.snapshots);
+  const baselineRows=items.filter(it=>ymFromDate(getByAliases(it.fields||{},sc,['Snapshot Month'],''))===baselineCycle);
+  const latestRevision=completeSnapshotRevision(baselineRows,sc)||1;
   const matches=[];
-  for(const it of items){
+  for(const it of baselineRows){
     const f=it.fields||{};
-    const sm=ymFromDate(getByAliases(f,sc,['Snapshot Month'],''));
     const hm=ymFromDate(getByAliases(f,sc,['Horizon Month'],''));
-    if(sm!==baselineCycle || hm!==current)continue;
-    matches.push({
-      id:it.id,
-      weighted:num(getByAliases(f,sc,['Weighted Revenue'],0)),
-      confirmed:num(getByAliases(f,sc,['Confirmed Revenue'],0))
-    });
+    const sid=String(getByAliases(f,sc,['Snapshot ID','Title'],''));
+    if(hm!==current || snapshotRevisionFromId(sid)!==latestRevision)continue;
+    matches.push({id:it.id,weighted:num(getByAliases(f,sc,['Weighted Revenue'],0)),confirmed:num(getByAliases(f,sc,['Confirmed Revenue'],0))});
   }
-
-  // There should be one aggregate snapshot row for the current horizon month.
-  // If duplicates exist, use the first row and surface the issue in the source label
-  // rather than silently double-counting.
+  state.baselineCycle=baselineCycle;
   const row=matches[0]||null;
   state.baselineRevenue=row ? row.weighted : 0;
   state.baselineSource=row
-    ? `${monthLong(baselineCycle)} snapshot → ${monthLong(current)} horizon${matches.length>1?` (${matches.length} rows found — review duplicates)`:''}`
+    ? `${monthLong(baselineCycle)} snapshot R${latestRevision} → ${monthLong(current)} horizon${matches.length>1?` (${matches.length} rows found — review duplicates)`:''}`
     : `${monthLong(baselineCycle)} snapshot → ${monthLong(current)} horizon (row not found)`;
   state.baselineConfirmedRevenue=row ? row.confirmed : 0;
   const currentForecast=currentMonthWeightedForecast();
@@ -1828,37 +2037,23 @@ async function repairApprovedCycleIfNeeded(ym){
   if(!rec)return {approved:false,repaired:false,snapshots:0};
   const status=await cycleStatusOf(rec);
   if(status!=='Approved')return {approved:false,repaired:false,snapshots:0};
-
   let rows=await snapshotRowsForCycle(ym);
-
-  // De-duplicate snapshot horizon months left by failed attempts.
   const sm=await getColumns(LIST_NAMES.snapshots);
-  const byHorizon=new Map();
-  for(const it of rows){
-    const hm=ymFromDate(getByAliases(it.fields||{},sm,['Horizon Month'],''));
-    if(!hm)continue;
-    if(!byHorizon.has(hm))byHorizon.set(hm,it);
-    else await deleteQuietly(LIST_NAMES.snapshots,it.id);
+  const latestComplete=completeSnapshotRevision(rows,sm);
+  if(latestComplete){
+    await ensureNextDraftCycle(ym).catch(err=>console.warn('Next-cycle recovery skipped:',err));
+    return {approved:true,repaired:false,snapshots:24,revision:latestComplete};
   }
-  rows=await snapshotRowsForCycle(ym);
-
-  // If Approved but not exactly 24 rows, rebuild the snapshot set once.
-  // This is recovery from the earlier non-atomic approval versions.
-  let repaired=false;
-  if(rows.length!==24){
-    for(const it of rows)await deleteQuietly(LIST_NAMES.snapshots,it.id);
-    const rebuilt=[];
-    await createSnapshotRows(ym,rebuilt);
-    if(rebuilt.length!==24){
-      for(const it of rebuilt)if(it?.id)await deleteQuietly(LIST_NAMES.snapshots,it.id);
-      throw new Error(`${monthLong(ym)} is Approved but its snapshot history could not be repaired to 24 rows.`);
-    }
-    repaired=true;
-    rows=rebuilt;
+  // No complete approved revision exists: this can only be legacy/incomplete approval data.
+  for(const it of rows)await deleteQuietly(LIST_NAMES.snapshots,it.id);
+  const rebuilt=[];
+  await createSnapshotRows(ym,rebuilt,1);
+  if(rebuilt.length!==24){
+    for(const it of rebuilt)if(it?.id)await deleteQuietly(LIST_NAMES.snapshots,it.id);
+    throw new Error(`${monthLong(ym)} is Approved but its snapshot history could not be repaired to 24 rows.`);
   }
-
-  await ensureNextDraftCycle(ym);
-  return {approved:true,repaired,snapshots:rows.length};
+  await ensureNextDraftCycle(ym).catch(err=>console.warn('Next-cycle recovery skipped:',err));
+  return {approved:true,repaired:true,snapshots:24,revision:1};
 }
 
 async function approvalPreflight(){
@@ -1878,7 +2073,25 @@ async function approvalPreflight(){
 async function openLiveApproval(){
   try{
     if(!liveMode){alert('Load Live S&OP Data first.');return}
+    const approvalCycle=state.cycle;
+    const status=selectedCycleStatus();
+    if(status==='Approved'){
+      alert(`${monthLong(approvalCycle)} is Approved and read-only. Reopen it before approving a revised plan.`);
+      return;
+    }
+    state._approvalCycle=approvalCycle;
+    // If this month already has an approved snapshot, this is a historical revision.
+    // Determine where to return afterwards from the established later cycles, but do
+    // not change the selected cycle while opening the approval screen.
+    const priorRows=await snapshotRowsForCycle(approvalCycle);
+    const sm=await getColumns(LIST_NAMES.snapshots);
+    if(completeSnapshotRevision(priorRows,sm)){
+      const later=(state._cycleCatalog||[]).filter(c=>c.month>approvalCycle).sort((a,b)=>b.month.localeCompare(a.month));
+      state._returnCycleAfterHistoricalApproval=
+        later.find(c=>c.status==='Draft'||c.status==='In Review')?.month || later[0]?.month || approvalCycle;
+    }
     const pf=await approvalPreflight();
+    if(state.cycle!==approvalCycle) throw new Error(`Approval context changed from ${monthLong(approvalCycle)} to ${monthLong(state.cycle)}. Approval stopped for safety.`);
   const subtitle=document.getElementById('approvalSubtitle');
   const checksEl=document.getElementById('approvalChecks');
   const confirmBtn=document.getElementById('confirmApprovalBtn');
@@ -1890,6 +2103,7 @@ async function openLiveApproval(){
   checksEl.innerHTML=pf.checks.map(c=>`<div class="connection-item" style="margin-bottom:8px">
     <div class="name">${c.ok?'✓':'✕'} ${escapeHtml(c.label)}</div>
   </div>`).join('');
+  confirmBtn.textContent=state._returnCycleAfterHistoricalApproval?'Approve Revised Cycle':'Approve & Start Next Cycle';
   confirmBtn.disabled=pf.checks.some(c=>!c.ok);
   confirmBtn.style.opacity=confirmBtn.disabled?'.45':'1';
   modal.style.display='flex';
@@ -1901,12 +2115,17 @@ async function openLiveApproval(){
 async function currentCycleListItem(){
   const items=await readItems(LIST_NAMES.cycles);
   const cm=await getColumns(LIST_NAMES.cycles);
-  return items.find(it=>{
+  const matches=items.filter(it=>{
     const f=it.fields||{};
     const id=String(getByAliases(f,cm,['Cycle ID','Title'],''));
     const month=ymFromDate(getByAliases(f,cm,['Cycle Month'],''));
     return id===cycleIdFor(state.cycle)||month===state.cycle;
-  })||null;
+  });
+  if(!matches.length)return null;
+  const wanted=selectedCycleStatus();
+  return matches.find(it=>String(getByAliases(it.fields||{},cm,['Status'],''))===wanted)
+    || matches.find(it=>String(getByAliases(it.fields||{},cm,['Status'],''))!=='Approved')
+    || matches[0];
 }
 async function nextCycleExists(nextYM){
   const items=await readItems(LIST_NAMES.cycles);
@@ -1917,7 +2136,7 @@ async function nextCycleExists(nextYM){
       || ymFromDate(getByAliases(f,cm,['Cycle Month'],''))===nextYM;
   })||null;
 }
-async function createSnapshotRows(snapshotMonth,created=[]){
+async function createSnapshotRows(snapshotMonth,created=[],revision=1){
   const horizons=horizonMonths(snapshotMonth,24);
 
   for(const hm of horizons){
@@ -1926,7 +2145,7 @@ async function createSnapshotRows(snapshotMonth,created=[]){
     const productDays=productDevelopmentForMonth(hm);
     const totalReq=d.weightedDays+productDays;
     const gap=available-totalReq;
-    const snapshotId=`SNP-${snapshotMonth}-${hm}`;
+    const snapshotId=snapshotIdBase(snapshotMonth,hm,revision);
 
     // Create the row using only the guaranteed writable identifier first.
     // Imported SharePoint Lists can have field-type differences; subsequent
@@ -2032,8 +2251,14 @@ async function rollOpenDecisionsToNextCycle(nextYM){
 }
 async function commitLiveCycleApproval(){
   const btn=document.getElementById('confirmApprovalBtn');
-  const oldCycle=state.cycle;
+  const oldCycle=state._approvalCycle||state.cycle;
+  if(state.cycle!==oldCycle){
+    alert(`Approval stopped: the selected cycle changed. Re-open Management Review for ${monthLong(state.cycle)} and try again.`);
+    return;
+  }
   const nextYM=addMonthsYM(oldCycle,1);
+  const historicalReturn=state._returnCycleAfterHistoricalApproval||'';
+  let approvalRevision=1;
 
   let stage='pre-flight';
   const snapshotItems=[];
@@ -2088,43 +2313,46 @@ async function commitLiveCycleApproval(){
     stage='checking prior snapshot attempts';
     const existingSnaps=await readItems(LIST_NAMES.snapshots);
     const sm=await getColumns(LIST_NAMES.snapshots);
-    const stale=existingSnaps.filter(it=>
-      ymFromDate(getByAliases(it.fields||{},sm,['Snapshot Month'],''))===oldCycle
-    );
-
-    // Snapshot rows for a non-approved cycle can only be remnants of an interrupted attempt.
-    if(stale.length){
-      liveNotice(`<b>Recovery:</b> removing ${stale.length} incomplete ${escapeHtml(monthLong(oldCycle))} snapshot row(s) from the previous failed attempt…`);
-      for(const it of stale){await deleteQuietly(LIST_NAMES.snapshots,it.id);staleRemoved++}
+    const priorRows=existingSnaps.filter(it=>ymFromDate(getByAliases(it.fields||{},sm,['Snapshot Month'],''))===oldCycle);
+    const latestComplete=completeSnapshotRevision(priorRows,sm);
+    approvalRevision=latestComplete?latestComplete+1:1;
+    const hasPriorApprovedRevision=Boolean(latestComplete);
+    // Clean only an incomplete attempt at the revision we are about to create; never delete a complete approved revision.
+    const candidateRows=rowsForSnapshotRevision(priorRows,sm,approvalRevision);
+    if(candidateRows.length){
+      liveNotice(`<b>Recovery:</b> removing ${candidateRows.length} incomplete revision ${approvalRevision} snapshot row(s) before retry…`);
+      for(const it of candidateRows){await deleteQuietly(LIST_NAMES.snapshots,it.id);staleRemoved++}
     }
 
     stage='checking next cycle';
     const nextExisting=await nextCycleExists(nextYM);
+    const isHistoricalRevision=hasPriorApprovedRevision || Boolean(historicalReturn) || Boolean(nextExisting && (await cycleStatusOf(nextExisting))==='Approved');
     if(nextExisting){
-      const cc=await getColumns(LIST_NAMES.cycles);
-      const nextStatus=String(getByAliases(nextExisting.fields||{},cc,['Status'],''));
-      // A Draft row left by a failed approval is safe to reuse; anything else is not.
-      if(nextStatus && nextStatus!=='Draft'){
-        throw new Error(`${cycleIdFor(nextYM)} already exists with status "${nextStatus}". Approval stopped to protect the cycle history.`);
+      const nextStatus=await cycleStatusOf(nextExisting);
+      if(isHistoricalRevision){
+        nextCycleItem=null; // Do not rewrite an already established later cycle.
+      }else{
+        if(nextStatus && nextStatus!=='Draft' && nextStatus!=='In Review') throw new Error(`${cycleIdFor(nextYM)} already exists with status "${nextStatus}". Approval stopped to protect the cycle history.`);
+        nextCycleItem=nextExisting;
       }
-      nextCycleItem=nextExisting;
     }
 
     stage='creating 24-month snapshot';
     liveNotice('<b>Approval 1/3:</b> validating and creating the immutable 24-month snapshot…');
-    await createSnapshotRows(oldCycle,snapshotItems);
+    await createSnapshotRows(oldCycle,snapshotItems,approvalRevision);
     if(snapshotItems.length!==24){
       throw new Error(`Expected 24 snapshot rows but ${snapshotItems.length} were created.`);
     }
 
     stage='creating next Draft cycle';
     liveNotice('<b>Approval 2/3:</b> preparing the next Draft cycle…');
-    if(!nextCycleItem){
+    if(!isHistoricalRevision && !nextCycleItem){
       nextCycleItem=await createBareItem(
         LIST_NAMES.cycles,['Cycle ID','Title'],cycleIdFor(nextYM),
         `Create ${cycleIdFor(nextYM)}`
       );
     }
+    if(!isHistoricalRevision){
     await patchNamedField(LIST_NAMES.cycles,nextCycleItem.id,'Next Cycle Month',['Cycle Month'],dateFromYM(nextYM),true);
     await patchNamedField(LIST_NAMES.cycles,nextCycleItem.id,'Next Cycle Status',['Status'],'Draft',true);
     await patchNamedField(LIST_NAMES.cycles,nextCycleItem.id,'Next Product Review Status',['Product Review Status'],'Not Started',true);
@@ -2133,6 +2361,7 @@ async function commitLiveCycleApproval(){
     await patchNamedField(LIST_NAMES.cycles,nextCycleItem.id,'Next Reconciliation Status',['Reconciliation Status'],'Not Started',true);
     await patchNamedField(LIST_NAMES.cycles,nextCycleItem.id,'Next Management Review Status',['Management Review Status'],'Not Started',true);
     await patchNamedField(LIST_NAMES.cycles,nextCycleItem.id,'Previous Cycle ID',['Previous Cycle ID'],cycleIdFor(oldCycle),false);
+    }
 
     stage='completing current review statuses';
     liveNotice('<b>Approval 3/3:</b> marking the current cycle approved…');
@@ -2159,13 +2388,20 @@ async function commitLiveCycleApproval(){
     // Do not reassign Decision Cycle IDs: original cycle is part of the audit trail.
     // Open decisions remain visible in later cycles.
     stage='resetting product change flags';
-    const productWarnings=await resetProductChangeFlags(nextYM);
+    const productWarnings=isHistoricalRevision?[]:await resetProductChangeFlags(nextYM);
 
     state.approvedCycles.push({cycle:oldCycle});
     state.baselineRevenue=weightedRevenue(state.opportunities);
     state.baselineOpps=clone(state.opportunities);
-    state.cycle=nextYM;
+    const approvedEntry=cycleCatalogEntry(oldCycle);if(approvedEntry)approvedEntry.status='Approved';
+    if(!isHistoricalRevision && !cycleCatalogEntry(nextYM))state._cycleCatalog.push({month:nextYM,id:cycleIdFor(nextYM),status:'Draft',approvedDate:'',_spItemId:nextCycleItem?.id||null});
+    const destination=isHistoricalRevision?(historicalReturn||oldCycle):nextYM;
+    state.cycle=destination;
+    state._returnCycleAfterHistoricalApproval='';
+    state._approvalCycle='';
+    state.capacity=capacityStateForCycle(destination);
     state.meta={risk:'',recommendation:'',reconcileDecision:'Yes'};
+    loadReconciliationMetaFromDecisions();
     await refreshApprovedCyclesFromSharePoint();
     await refreshBaselineFromSnapshots();
 
@@ -2176,10 +2412,10 @@ async function commitLiveCycleApproval(){
       ? ` Product flag reset had ${productWarnings.length} warning(s); the cycle approval itself is complete.`
       : '';
     liveNotice(
-      `<b>${escapeHtml(monthLong(oldCycle))} approved successfully.</b> `+
-      `24 immutable snapshot rows created and ${escapeHtml(monthLong(nextYM))} opened as Draft.${warningText}`
+      `<b>${escapeHtml(monthLong(oldCycle))} approved successfully — revision ${approvalRevision}.</b> `+
+      (isHistoricalRevision?`24 new snapshot rows were added without overwriting the previous approval. ${historicalReturn?`Returned to ${escapeHtml(monthLong(state.cycle))}.`:''}`:`24 immutable snapshot rows created and ${escapeHtml(monthLong(nextYM))} opened as Draft.${warningText}`)
     );
-    setAuthStatus(`SharePoint: LIVE · ${monthName(nextYM)} Draft`,'ok');
+    setAuthStatus(`SharePoint: LIVE · ${monthName(state.cycle)} ${selectedCycleStatus()}`,'ok');
 
   }catch(err){
     const failureStage=stage;
@@ -2203,7 +2439,7 @@ async function commitLiveCycleApproval(){
     liveNotice(`<b>Approval stopped at ${escapeHtml(failureStage)}:</b> ${escapeHtml(msg)}`,'err');
     alert(`Approval was not completed at "${failureStage}": ${msg}`);
   }finally{
-    btn.disabled=false;btn.textContent='Approve & Start Next Cycle';
+    btn.disabled=false;btn.textContent=state._returnCycleAfterHistoricalApproval?'Approve Revised Cycle':'Approve & Start Next Cycle';
   }
 }
 
