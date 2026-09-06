@@ -152,13 +152,13 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
 </section>
 
 <section id="product" class="page">
-  <div class="toolbar"><div><h1>1 — Product Review</h1><div class="sub">Only enter material portfolio changes.</div></div><button class="btn" onclick="openProduct()">+ Add offer</button></div>
+  <div class="toolbar"><div><h1>1 — Product Review</h1><div class="sub">Only enter material portfolio changes.</div></div><div class="actions"><button class="btn ghost" id="productArchiveToggle" onclick="toggleArchivedProducts()">Show Archived</button><button class="btn" onclick="openProduct()">+ Add offer</button></div></div>
   <div class="card"><table><thead><tr><th>Offer</th><th>Type</th><th>Stage</th><th>Launch</th><th>Build Days</th><th>Change</th><th>Decision?</th><th></th></tr></thead><tbody id="productRows"></tbody></table></div>
   <div class="note">Automatic effect: build days are added to expert-capacity demand in the target launch month.</div>
 </section>
 
 <section id="demand" class="page">
-  <div class="toolbar"><div><h1>2 — Demand Review</h1><div class="sub">Add or update client demand. Probability, weighted value and monthly spreading are calculated automatically.</div></div><button class="btn" onclick="openOpportunity()">+ Add opportunity</button></div>
+  <div class="toolbar"><div><h1>2 — Demand Review</h1><div class="sub">Add or update client demand. Probability, weighted value and monthly spreading are calculated automatically.</div></div><div class="actions"><button class="btn ghost" id="oppArchiveToggle" onclick="toggleArchivedOpps()">Show Archived</button><button class="btn" onclick="openOpportunity()">+ Add opportunity</button></div></div>
   <div class="card"><table><thead><tr><th>Client</th><th>Opportunity</th><th>Type</th><th>Dates</th><th>Status</th><th>Probability</th><th>Revenue</th><th>Weighted Revenue</th><th>Weighted Days</th><th></th></tr></thead><tbody id="oppRows"></tbody></table></div>
 </section>
 
@@ -335,6 +335,9 @@ input,select,textarea{width:100%;padding:9px;border:1px solid var(--border);bord
     <div class="field"><label>Total expert days</label><input id="oDays" type="number" min="0" step="0.5"></div>
     <div class="field"><label>Revenue profile</label><select id="oRevProfile"><option>Evenly spread</option><option>Upfront</option></select></div>
     <div class="field"><label>Expert-day profile</label><select id="oDayProfile"><option>Evenly spread</option><option>Front loaded</option></select></div>
+    <div class="field"><label>Decision required?</label><select id="oDecision"><option>No</option><option>Yes</option></select></div>
+    <div class="field"><label>Owner</label><select id="oOwner"><option>Steve</option><option>Mike</option></select></div>
+    <div class="field full"><label>Recommendation</label><textarea id="oRec"></textarea></div>
   </div>
   <div class="actions"><button class="btn" onclick="saveOpportunity()">Save</button><button class="btn secondary" onclick="closeModal('oppModal')">Cancel</button></div>
 </div></div>
@@ -445,7 +448,7 @@ async function getColumns(expectedName){
   if(listColumns[expectedName])return listColumns[expectedName];
   await ensureConnectedLists();
   const list=sharePointLists[expectedName];
-  const data=await graphGet(`/sites/${encodeURIComponent(sharePointSite.id)}/lists/${encodeURIComponent(list.id)}/columns?$select=id,name,displayName,readOnly,hidden`);
+  const data=await graphGet(`/sites/${encodeURIComponent(sharePointSite.id)}/lists/${encodeURIComponent(list.id)}/columns?$select=id,name,displayName,readOnly,hidden,choice`);
   const cols=(data.value||[]).filter(c=>!c.hidden);
   const byDisplay={},byInternal={};
   // SharePoint exposes several computed/read-only "Title link" columns
@@ -458,6 +461,59 @@ async function getColumns(expectedName){
   });
   listColumns[expectedName]={cols,byDisplay,byInternal};
   return listColumns[expectedName];
+}
+function choiceColumn(expectedName,aliases){
+  const m=listColumns[expectedName];
+  if(!m)return null;
+  for(const a of (Array.isArray(aliases)?aliases:[aliases])){
+    const k=normFieldName(a);
+    const c=m.byDisplay[k]||m.byInternal[k];
+    if(c)return c;
+  }
+  return null;
+}
+function listChoiceValues(expectedName,aliases,fallback=[]){
+  const c=choiceColumn(expectedName,aliases);
+  const vals=Array.isArray(c?.choice?.choices)?c.choice.choices.filter(v=>v!==null&&v!==undefined&&String(v).trim()!==''):[];
+  return vals.length?vals:[...fallback];
+}
+function setSelectFromList(id,expectedName,aliases,fallback=[]){
+  const el=document.getElementById(id); if(!el)return;
+  const current=el.value;
+  const values=listChoiceValues(expectedName,aliases,fallback);
+  if(!values.length)return;
+  el.innerHTML=values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  if(values.includes(current))el.value=current;
+}
+function listChoiceOptions(expectedName,aliases,current,fallback=[]){
+  const values=listChoiceValues(expectedName,aliases,fallback);
+  return values.map(v=>`<option value="${escapeHtml(v)}" ${String(v)===String(current)?'selected':''}>${escapeHtml(v)}</option>`).join('');
+}
+function setSelectValueLoose(el,value){
+  if(!el)return;
+  const target=String(value??'');
+  const exact=[...el.options].find(o=>o.value===target);
+  const loose=exact||[...el.options].find(o=>normFieldName(o.value)===normFieldName(target));
+  if(loose)el.value=loose.value;
+}
+function syncListChoiceDropdowns(){
+  // Product Review
+  setSelectFromList('pType',LIST_NAMES.products,['Type'],['Course','Diagnostic Tool','Coaching','Template / Toolkit','Programme']);
+  setSelectFromList('pStage',LIST_NAMES.products,['Stage'],['Idea','Development','Live','Retired']);
+  setSelectFromList('pChange',LIST_NAMES.products,['Change Type'],['No Material Change','New','Timing Changed','Scope Changed','Commercial Changed']);
+  setSelectFromList('pDecision',LIST_NAMES.products,['Decision Required','Decision Required?'],['No','Yes']);
+  setSelectFromList('pOwner',LIST_NAMES.products,['Decision Owner'],['Steve','Mike']);
+
+  // Demand Review
+  setSelectFromList('oType',LIST_NAMES.opportunities,['Demand Type'],['Course Place','Academy Package','Diagnostic Assessment','Advanced Diagnostic','Coaching Day','Programme','Template / Tool Licence']);
+  setSelectFromList('oStatus',LIST_NAMES.opportunities,['Status'],['Early','Medium','High','Confirmed','Won','Lost']);
+  setSelectFromList('oRevProfile',LIST_NAMES.opportunities,['Revenue Profile'],['Evenly Spread','Upfront']);
+  setSelectFromList('oDayProfile',LIST_NAMES.opportunities,['Expert Day Profile'],['Evenly Spread','Front Loaded']);
+  setSelectFromList('oDecision',LIST_NAMES.opportunities,['Decision Required','Decision Required?'],['No','Yes']);
+  setSelectFromList('oOwner',LIST_NAMES.opportunities,['Owner'],['Steve','Mike']);
+
+  // Cycle approval: use the List's actual choices when Approved By is configured as Choice.
+  setSelectFromList('approvalBy',LIST_NAMES.cycles,['Approved By'],['Steve','Mike','Joint']);
 }
 async function fieldInternal(expectedName,aliases){
   const m=await getColumns(expectedName);
@@ -596,6 +652,7 @@ async function loadLiveSOPData(){
       getColumns(LIST_NAMES.cycles),getColumns(LIST_NAMES.products),getColumns(LIST_NAMES.opportunities),
       getColumns(LIST_NAMES.capacity),getColumns(LIST_NAMES.decisions),getColumns(LIST_NAMES.snapshots)
     ]);
+    syncListChoiceDropdowns();
 
     const cycles=cycleItems.map(it=>{
       const f=it.fields||{};
@@ -652,6 +709,7 @@ async function loadLiveSOPData(){
         change:String(getByAliases(f,pc,['Change Type'],'No Material Change')),
         decision:yesNo(getByAliases(f,pc,['Decision Required','Decision Required?'],'No')),
         owner:String(getByAliases(f,pc,['Decision Owner'],'Steve')),
+        active:String(getByAliases(f,pc,['Active'],'Yes')).toLowerCase()!=='no',
         rec:String(getByAliases(f,pc,['Recommendation'],''))
       };
     }).filter(p=>p.name);
@@ -672,8 +730,12 @@ async function loadLiveSOPData(){
         prob:num(getByAliases(f,oc,['Probability %','Probability'],probabilityForStatus(status))),
         revenue:num(getByAliases(f,oc,['Total Revenue £','Total Revenue'],0)),
         days:num(getByAliases(f,oc,['Expert Days'],0)),
-        revProfile:String(getByAliases(f,oc,['Revenue Profile'],'Evenly Spread')).replace('Evenly Spread','Evenly spread'),
-        dayProfile:String(getByAliases(f,oc,['Expert Day Profile'],'Evenly Spread')).replace('Evenly Spread','Evenly spread').replace('Front Loaded','Front loaded')
+        revProfile:String(getByAliases(f,oc,['Revenue Profile'],'Evenly Spread')),
+        dayProfile:String(getByAliases(f,oc,['Expert Day Profile'],'Evenly Spread')),
+        decision:yesNo(getByAliases(f,oc,['Decision Required','Decision Required?'],'No')),
+        owner:String(getByAliases(f,oc,['Owner'],'Steve')),
+        rec:String(getByAliases(f,oc,['Recommendation'],'')).trim(),
+        active:String(getByAliases(f,oc,['Active'],'Yes')).toLowerCase()!=='no'
       };
     }).filter(o=>o.client||o.name);
 
@@ -793,7 +855,7 @@ async function persistProduct(obj){
     [['Decision Required','Decision Required?'],obj.decision],
     [['Recommendation'],obj.rec||''],
     [['Decision Owner'],obj.owner],
-    [['Active'],'Yes'],
+    [['Active'],obj.active===false?'No':'Yes'],
     [['Last Updated Cycle'],`CYC-${state.cycle}`]
   ]);
   if(obj._spItemId)await patchListItem(LIST_NAMES.products,obj._spItemId,fields);
@@ -804,8 +866,8 @@ async function persistProduct(obj){
 }
 async function persistOpportunity(obj){
   if(!liveMode)return;
-  const revProfile=obj.revProfile==='Evenly spread'?'Evenly Spread':obj.revProfile;
-  const dayProfile=obj.dayProfile==='Evenly spread'?'Evenly Spread':obj.dayProfile==='Front loaded'?'Front Loaded':obj.dayProfile;
+  const revProfile=obj.revProfile;
+  const dayProfile=obj.dayProfile;
   const fields=await makeFields(LIST_NAMES.opportunities,[
     [['Opportunity ID','Title'],obj.id],
     [['Client / Prospect','Client Prospect'],obj.client],
@@ -820,7 +882,10 @@ async function persistOpportunity(obj){
     [['Expert Days'],obj.days],
     [['Revenue Profile'],revProfile],
     [['Expert Day Profile'],dayProfile],
-    [['Active'],'Yes'],
+    [['Decision Required','Decision Required?'],obj.decision||'No'],
+    [['Recommendation'],obj.rec||''],
+    [['Owner'],obj.owner||'Steve'],
+    [['Active'],obj.active===false?'No':'Yes'],
     [['Last Updated Cycle'],`CYC-${state.cycle}`]
   ]);
   if(obj._spItemId)await patchListItem(LIST_NAMES.opportunities,obj._spItemId,fields);
@@ -947,20 +1012,20 @@ function load(){
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
 let state;
 
-function weightedRevenue(opps=state.opportunities){return opps.reduce((s,o)=>s+(o.status==='Lost'?0:o.revenue*(o.prob/100)),0)}
-function weightedDays(opps=state.opportunities){return opps.reduce((s,o)=>s+(o.status==='Lost'?0:o.days*(o.prob/100)),0)}
+function weightedRevenue(opps=state.opportunities){return opps.reduce((s,o)=>s+((o.active===false||o.status==='Lost')?0:o.revenue*(o.prob/100)),0)}
+function weightedDays(opps=state.opportunities){return opps.reduce((s,o)=>s+((o.active===false||o.status==='Lost')?0:o.days*(o.prob/100)),0)}
 function months(n=24){return Array.from({length:n},(_,i)=>addMonths(state.cycle,i))}
 function oppMonthly(o,month,kind){
-  if(month<o.start||month>o.end||o.status==='Lost') return 0;
+  if(o.active===false||month<o.start||month>o.end||o.status==='Lost') return 0;
   let count=Math.max(1,monthsBetween(o.start,o.end)), weighted=(o.prob/100);
   if(kind==='revenue'){
-    if(o.revProfile==='Upfront') return month===o.start?o.revenue*weighted:0;
+    if(String(o.revProfile||'').toLowerCase()==='upfront') return month===o.start?o.revenue*weighted:0;
     return (o.revenue/count)*weighted;
   }
-  if(o.dayProfile==='Front loaded') return month===o.start?o.days*weighted:0;
+  if(String(o.dayProfile||'').toLowerCase()==='front loaded') return month===o.start?o.days*weighted:0;
   return (o.days/count)*weighted;
 }
-function productBuildForMonth(month){return state.products.reduce((s,p)=>s+((p.stage==='Development'&&p.launch===month)?Number(p.build||0):0),0)}
+function productBuildForMonth(month){return state.products.reduce((s,p)=>s+((p.active!==false&&p.stage==='Development'&&p.launch===month)?Number(p.build||0):0),0)}
 function monthlyRequirement(month){
   return state.opportunities.reduce((s,o)=>s+oppMonthly(o,month,'days'),0)+productBuildForMonth(month)+Number(state.capacity.bdDays||0);
 }
@@ -1148,11 +1213,18 @@ function renderDashboard(){
   state.decisions.filter(d=>!isReconciliationMeta(d)&&d.status!=='Closed').forEach(d=>att.push(d.question));
   attentionList.innerHTML=att.length?att.slice(0,6).map(x=>`<div class="callout exception">${x}</div>`).join(''):`<div class="note">No exceptions currently require management attention.</div>`;
 }
+let showArchivedProducts=false,showArchivedOpps=false;
+function toggleArchivedProducts(){showArchivedProducts=!showArchivedProducts;renderProducts()}
+function toggleArchivedOpps(){showArchivedOpps=!showArchivedOpps;renderOpps()}
 function renderProducts(){
-  productRows.innerHTML=state.products.map(p=>`<tr><td>${p.name}</td><td>${p.type}</td><td><span class="pill ${p.stage==='Live'?'green':p.stage==='Development'?'amber':'grey'}">${p.stage}</span></td><td>${monthName(p.launch)}</td><td>${fmtNum(p.build)}</td><td>${p.change}</td><td>${p.decision==='Yes'?'<span class="pill red">Yes</span>':'No'}</td><td><button class="btn ghost" onclick="openProduct('${p.id}')">Edit</button></td></tr>`).join('');
+  const rows=state.products.filter(p=>showArchivedProducts?p.active===false:p.active!==false);
+  const toggle=document.getElementById('productArchiveToggle');if(toggle)toggle.textContent=showArchivedProducts?'Show Active':'Show Archived';
+  productRows.innerHTML=rows.length?rows.map(p=>`<tr><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.type)}</td><td><span class="pill ${p.stage==='Live'?'green':p.stage==='Development'?'amber':'grey'}">${escapeHtml(p.stage)}</span></td><td>${monthName(p.launch)}</td><td>${fmtNum(p.build)}</td><td>${escapeHtml(p.change)}</td><td>${p.decision==='Yes'?'<span class="pill red">Yes</span>':'No'}</td><td><div class="actions"><button class="btn ghost" onclick="openProduct('${p.id}')">Edit</button><button class="btn ghost" onclick="setProductArchived('${p.id}',${p.active===false?'false':'true'})">${p.active===false?'Restore':'Archive'}</button></div></td></tr>`).join(''):`<tr><td colspan="8" class="note">${showArchivedProducts?'No archived offers.':'No active offers.'}</td></tr>`;
 }
 function renderOpps(){
-  oppRows.innerHTML=state.opportunities.map(o=>`<tr><td>${o.client}</td><td>${o.name}</td><td>${o.type}</td><td>${monthName(o.start)}${o.end!==o.start?' → '+monthName(o.end):''}</td><td>${o.status}</td><td>${o.prob}%</td><td>${fmtGBP(o.revenue)}</td><td>${fmtGBP(o.revenue*o.prob/100)}</td><td>${fmtNum(o.days*o.prob/100)}</td><td><button class="btn ghost" onclick="openOpportunity('${o.id}')">Edit</button></td></tr>`).join('');
+  const rows=state.opportunities.filter(o=>showArchivedOpps?o.active===false:o.active!==false);
+  const toggle=document.getElementById('oppArchiveToggle');if(toggle)toggle.textContent=showArchivedOpps?'Show Active':'Show Archived';
+  oppRows.innerHTML=rows.length?rows.map(o=>`<tr><td>${escapeHtml(o.client)}</td><td>${escapeHtml(o.name)}</td><td>${escapeHtml(o.type)}</td><td>${monthName(o.start)}${o.end!==o.start?' → '+monthName(o.end):''}</td><td>${escapeHtml(o.status)}</td><td>${o.prob}%</td><td>${fmtGBP(o.revenue)}</td><td>${fmtGBP(o.revenue*o.prob/100)}</td><td>${fmtNum(o.days*o.prob/100)}</td><td><div class="actions"><button class="btn ghost" onclick="openOpportunity('${o.id}')">Edit</button><button class="btn ghost" onclick="setOpportunityArchived('${o.id}',${o.active===false?'false':'true'})">${o.active===false?'Restore':'Archive'}</button></div></td></tr>`).join(''):`<tr><td colspan="10" class="note">${showArchivedOpps?'No archived opportunities.':'No active opportunities.'}</td></tr>`;
 }
 function renderSupply(){
   steveGross.value=state.capacity.steveGross; steveLeave.value=state.capacity.steveLeave; mikeGross.value=state.capacity.mikeGross; mikeLeave.value=state.capacity.mikeLeave; bdDays.value=state.capacity.bdDays; manualAdjust.value=state.capacity.manualAdjust;
@@ -1200,26 +1272,19 @@ function renderManagement(){
         <div class="field">
           <label>Decision</label>
           <select onchange="changeDecisionType('${d.id}',this.value)">
-            <option ${d.decision==='Approve'?'selected':''}>Approve</option>
-            <option ${d.decision==='Reject'?'selected':''}>Reject</option>
-            <option ${d.decision==='Amend'?'selected':''}>Amend</option>
-            <option ${d.decision==='Defer'?'selected':''}>Defer</option>
+            ${listChoiceOptions(LIST_NAMES.decisions,['Management Response'],d.decision,['Approve','Reject','Amend','Defer'])}
           </select>
         </div>
         <div class="field">
           <label>Owner</label>
           <select onchange="updateDecision('${d.id}','owner',this.value)">
-            <option ${d.owner==='Steve'?'selected':''}>Steve</option>
-            <option ${d.owner==='Mike'?'selected':''}>Mike</option>
+            ${listChoiceOptions(LIST_NAMES.decisions,['Owner'],d.owner,['Steve','Mike'])}
           </select>
         </div>
         <div class="field">
           <label>Status</label>
           <select onchange="updateDecision('${d.id}','status',this.value)">
-            <option ${d.status==='Open'?'selected':''}>Open</option>
-            <option ${d.status==='In Progress'?'selected':''}>In Progress</option>
-            <option ${d.status==='Closed'?'selected':''}>Closed</option>
-            <option ${d.status==='Deferred'?'selected':''}>Deferred</option>
+            ${listChoiceOptions(LIST_NAMES.decisions,['Status'],d.status,['Open','In Progress','Closed','Deferred'])}
           </select>
         </div>
       </div>
@@ -1307,8 +1372,8 @@ function renderData(){
   }
 }
 function openProduct(id=''){
-  let p=id?state.products.find(x=>x.id===id):{id:'',name:'',type:'Course',stage:'Idea',launch:state.cycle,build:0,change:'New',decision:'No',owner:'Steve',rec:''};
-  pId.value=p.id;pName.value=p.name;pType.value=p.type;pStage.value=p.stage;pLaunch.value=p.launch;pBuild.value=p.build;pChange.value=p.change;pDecision.value=p.decision;pOwner.value=p.owner;pRec.value=p.rec||'';
+  let p=id?state.products.find(x=>x.id===id):{id:'',name:'',type:'Course',stage:'Idea',launch:state.cycle,build:0,change:'New',decision:'No',owner:'Steve',rec:'',active:true};
+  pId.value=p.id;pName.value=p.name;setSelectValueLoose(pType,p.type);setSelectValueLoose(pStage,p.stage);pLaunch.value=p.launch;pBuild.value=p.build;setSelectValueLoose(pChange,p.change);setSelectValueLoose(pDecision,p.decision);setSelectValueLoose(pOwner,p.owner);pRec.value=p.rec||'';
   productModal.style.display='flex';
 }
 async function saveProduct(){
@@ -1329,21 +1394,39 @@ async function saveProduct(){
   }catch(err){console.error(err);alert('Product was not saved to Microsoft Lists: '+(err.message||err))}
 }
 function openOpportunity(id=''){
-  let o=id?state.opportunities.find(x=>x.id===id):{id:'',client:'',name:'',type:'Programme',status:'Early',prob:25,qty:1,start:state.cycle,end:state.cycle,revenue:0,days:0,revProfile:'Evenly spread',dayProfile:'Evenly spread'};
-  oId.value=o.id;oClient.value=o.client;oName.value=o.name;oType.value=o.type;oStatus.value=o.status;oProb.value=o.prob;oQty.value=o.qty;oStart.value=o.start;oEnd.value=o.end;oRevenue.value=o.revenue;oDays.value=o.days;oRevProfile.value=o.revProfile;oDayProfile.value=o.dayProfile;oppModal.style.display='flex';
+  let o=id?state.opportunities.find(x=>x.id===id):{id:'',client:'',name:'',type:'Programme',status:'Early',prob:25,qty:1,start:state.cycle,end:state.cycle,revenue:0,days:0,revProfile:'Evenly spread',dayProfile:'Evenly spread',decision:'No',owner:'Steve',rec:'',active:true};
+  oId.value=o.id;oClient.value=o.client;oName.value=o.name;setSelectValueLoose(oType,o.type);setSelectValueLoose(oStatus,o.status);oProb.value=o.prob;oQty.value=o.qty;oStart.value=o.start;oEnd.value=o.end;oRevenue.value=o.revenue;oDays.value=o.days;setSelectValueLoose(oRevProfile,o.revProfile);setSelectValueLoose(oDayProfile,o.dayProfile);setSelectValueLoose(oDecision,o.decision||'No');setSelectValueLoose(oOwner,o.owner||'Steve');oRec.value=o.rec||'';oppModal.style.display='flex';
 }
 function syncProbability(){oProb.value=probabilityForStatus(oStatus.value)}
 async function saveOpportunity(){
   if(oEnd.value<oStart.value){alert('End month cannot be before start month.');return}
   let existing=oId.value?state.opportunities.find(x=>x.id===oId.value):null;
-  let obj={...(existing||{}),id:oId.value||('OPP-'+Date.now()),client:oClient.value.trim(),name:oName.value.trim(),type:oType.value,status:oStatus.value,prob:clamp(Number(oProb.value||0),0,100),qty:Number(oQty.value||1),start:oStart.value,end:oEnd.value,revenue:Number(oRevenue.value||0),days:Number(oDays.value||0),revProfile:oRevProfile.value,dayProfile:oDayProfile.value};
+  let obj={...(existing||{}),id:oId.value||('OPP-'+Date.now()),client:oClient.value.trim(),name:oName.value.trim(),type:oType.value,status:oStatus.value,prob:clamp(Number(oProb.value||0),0,100),qty:Number(oQty.value||1),start:oStart.value,end:oEnd.value,revenue:Number(oRevenue.value||0),days:Number(oDays.value||0),revProfile:oRevProfile.value,dayProfile:oDayProfile.value,decision:oDecision.value,owner:oOwner.value,rec:oRec.value.trim()};
   if(!obj.client||!obj.name){alert('Enter a client and opportunity name.');return}
   try{
     if(liveMode)await persistOpportunity(obj);
     let i=state.opportunities.findIndex(x=>x.id===obj.id);if(i>=0)state.opportunities[i]=obj;else state.opportunities.push(obj);
+    let escalation=null;
+    if(obj.decision==='Yes'){
+      escalation=addDecision('Demand',`Decision required for ${obj.client} — ${obj.name}`,obj.rec,obj.owner,obj.revenue*(obj.prob/100),obj.days*(obj.prob/100));
+      if(liveMode&&escalation?.isNew)await persistDecision(escalation.decision);
+    }
     closeModal('oppModal');render();
     if(liveMode)liveNotice(`<b>Saved:</b> ${escapeHtml(obj.client+' — '+obj.name)} updated in Microsoft Lists.`);
+    if(escalation)showEscalationToast(escalation);
   }catch(err){console.error(err);alert('Opportunity was not saved to Microsoft Lists: '+(err.message||err))}
+}
+async function setProductArchived(id,archive){
+  const p=state.products.find(x=>x.id===id);if(!p)return;
+  if(archive&&!confirm(`Archive ${p.name}? It will be removed from the active plan but retained in Microsoft Lists and can be restored.`))return;
+  const prior=p.active;p.active=!archive;
+  try{if(liveMode)await persistProduct(p);render();liveNotice(`<b>${archive?'Archived':'Restored'}:</b> ${escapeHtml(p.name)} ${archive?'removed from the active plan.':'returned to the active plan.'}`)}catch(err){p.active=prior;render();alert('The offer could not be updated in Microsoft Lists: '+(err.message||err))}
+}
+async function setOpportunityArchived(id,archive){
+  const o=state.opportunities.find(x=>x.id===id);if(!o)return;
+  if(archive&&!confirm(`Archive ${o.client} — ${o.name}? It will be removed from the active forecast but retained in Microsoft Lists and can be restored.`))return;
+  const prior=o.active;o.active=!archive;
+  try{if(liveMode)await persistOpportunity(o);render();liveNotice(`<b>${archive?'Archived':'Restored'}:</b> ${escapeHtml(o.client+' — '+o.name)} ${archive?'removed from the active forecast.':'returned to the active forecast.'}`)}catch(err){o.active=prior;render();alert('The opportunity could not be updated in Microsoft Lists: '+(err.message||err))}
 }
 function closeModal(id){document.getElementById(id).style.display='none'}
 async function updateCapacityInputs(){
@@ -1578,7 +1661,7 @@ function spreadValue(total,start,end,month,profile){
 }
 function monthDemandMetrics(month){
   let confirmedRevenue=0,weightedRevenue=0,confirmedDays=0,weightedDays=0;
-  state.opportunities.forEach(o=>{
+  state.opportunities.filter(o=>o.active!==false).forEach(o=>{
     const weightedRev=oppMonthly(o,month,'revenue');
     const weightedDay=oppMonthly(o,month,'days');
     weightedRevenue+=weightedRev;
@@ -1594,7 +1677,7 @@ function monthDemandMetrics(month){
 }
 function productDevelopmentForMonth(month){
   return state.products.reduce((sum,p)=>{
-    if(!p.build)return sum;
+    if(p.active===false||!p.build)return sum;
     if(p.stage==='Development' && p.launch && month<=p.launch && month>=state.cycle){
       const months=Math.max(1,monthsBetween(state.cycle,p.launch)+1);
       return sum+(num(p.build)/months);
