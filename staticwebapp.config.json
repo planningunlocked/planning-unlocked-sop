@@ -4,6 +4,10 @@
   },
   "routes": [
     {
+      "route": "/auth-callback.html",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/*",
       "allowedRoles": ["sop_user"]
     }
