@@ -5,7 +5,7 @@
   "routes": [
     {
       "route": "/*",
-      "allowedRoles": ["authenticated"]
+      "allowedRoles": ["sop_user"]
     }
   ],
   "responseOverrides": {
